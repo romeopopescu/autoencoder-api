@@ -1,1 +1,0 @@
-{"model_id": "model_20250605_120159", "threshold": 2.152279466955482, "feature_names": ["first_hour_norm", "last_hour_norm", "log_launch_count", "usage_span_norm", "log_foreground_time"]}

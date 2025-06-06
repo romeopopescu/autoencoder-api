@@ -14,6 +14,9 @@ from datetime import datetime
 import json
 import logging
 
+# dai run cu asta:
+# uvicorn neural-network:app --host 0.0.0.0 --port 8000
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
