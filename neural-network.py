@@ -17,34 +17,30 @@ import logging
 # dai run cu asta:
 # uvicorn neural-network:app --host 0.0.0.0 --port 8000
 
-# Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# FastAPI app
 app = FastAPI(
     title="Behavioral Anomaly Detection API",
     description="Android launcher security API for detecting anomalous app usage patterns",
     version="1.0.0"
 )
 
-# Add CORS middleware for Android app
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, specify your Android app's domain
+    allow_origins=["*"],  
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Pydantic models for API
 class AppUsageData(BaseModel):
     app: str
-    date: str  # Format: "YYYY-MM-DD"
+    date: str  
     first_hour: int
     last_hour: int
     launch_count: int
-    total_time_in_foreground: int  # Total time in seconds
+    total_time_in_foreground: int  
     
     @validator('first_hour', 'last_hour')
     def validate_hours(cls, v):
@@ -62,7 +58,7 @@ class AppUsageData(BaseModel):
     def validate_foreground_time(cls, v):
         if v < 0:
             raise ValueError('Foreground time cannot be negative')
-        if v > 86400:  # 24 hours in seconds
+        if v > 86400:  
             raise ValueError('Foreground time cannot exceed 24 hours')
         return v
 
@@ -80,7 +76,7 @@ class AnomalyResult(BaseModel):
     is_anomaly: bool
     anomaly_score: float
     confidence_percent: float
-    risk_level: str  # "LOW", "MEDIUM", "HIGH", "CRITICAL"
+    risk_level: str  
     details: Dict[str, Any]
 
 class TrainingResponse(BaseModel):
@@ -96,14 +92,12 @@ class AnomalyDetectionResponse(BaseModel):
     overall_risk_level: str
     timestamp: str
 
-# Global model storage
 class ModelManager:
     def __init__(self):
         self.model = None
         self.scaler = StandardScaler()
         self.threshold = None
         self.model_id = None
-        # Added log_foreground_time to feature names
         self.feature_names = ['first_hour_norm', 'last_hour_norm', 'log_launch_count', 'usage_span_norm', 'log_foreground_time']
     
     def preprocess_data(self, usage_data: List[AppUsageData]):
@@ -111,21 +105,16 @@ class ModelManager:
         data_dicts = [item.dict() for item in usage_data]
         df = pd.DataFrame(data_dicts)
         
-        # Feature engineering
         df['first_hour_norm'] = df['first_hour'] / 23.0
         df['last_hour_norm'] = df['last_hour'] / 23.0
         df['log_launch_count'] = np.log(df['launch_count'] + 1)
         
-        # Usage span calculation
         df['usage_span'] = df['last_hour'] - df['first_hour']
         df['usage_span_norm'] = df['usage_span'] / 24.0
         
-        # Handle edge case where last_hour < first_hour (crosses midnight)
         df.loc[df['usage_span'] < 0, 'usage_span_norm'] = (24 + df['usage_span']) / 24.0
         
-        # NEW: Add total_time_in_foreground feature with log transformation
-        # Log transform to handle wide range of usage times (some apps used for seconds, others for hours)
-        df['log_foreground_time'] = np.log(df['total_time_in_foreground'] + 1)  # +1 to handle zero values
+        df['log_foreground_time'] = np.log(df['total_time_in_foreground'] + 1)  
         
         features = df[self.feature_names].values
         return features, df
@@ -134,13 +123,11 @@ class ModelManager:
         """Build the autoencoder model"""
         input_layer = keras.Input(shape=(input_dim,))
         
-        # Encoder - slightly larger to handle the additional feature
         encoded = layers.Dense(20, activation='relu', name='encoder_1')(input_layer)
         encoded = layers.Dropout(0.1)(encoded)
         encoded = layers.Dense(10, activation='relu', name='encoder_2')(encoded)
         encoded = layers.Dense(5, activation='relu', name='bottleneck')(encoded)
         
-        # Decoder
         decoded = layers.Dense(10, activation='relu', name='decoder_1')(encoded)
         decoded = layers.Dropout(0.1)(decoded)
         decoded = layers.Dense(20, activation='relu', name='decoder_2')(decoded)
@@ -163,10 +150,8 @@ class ModelManager:
             if len(features) < 10:
                 raise ValueError("Need at least 10 samples for training")
             
-            # Scale features
             features_scaled = self.scaler.fit_transform(features)
             
-            # Build and train model
             self.model = self.build_autoencoder(features_scaled.shape[1])
             
             history = self.model.fit(
@@ -178,12 +163,10 @@ class ModelManager:
                 verbose=0
             )
             
-            # Calculate threshold
             predictions = self.model.predict(features_scaled, verbose=0)
             mse_scores = np.mean(np.square(features_scaled - predictions), axis=1)
             self.threshold = np.percentile(mse_scores, 95)
             
-            # Generate model ID
             self.model_id = f"model_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
             
             logger.info(f"Model trained successfully. Threshold: {self.threshold:.4f}")
@@ -201,7 +184,6 @@ class ModelManager:
         features, df = self.preprocess_data(usage_data)
         features_scaled = self.scaler.transform(features)
         
-        # Get predictions
         predictions = self.model.predict(features_scaled, verbose=0)
         mse_scores = np.mean(np.square(features_scaled - predictions), axis=1)
         
@@ -211,7 +193,6 @@ class ModelManager:
             is_anomaly = score > self.threshold
             confidence = min(100, (score / self.threshold) * 100) if self.threshold > 0 else 0
             
-            # Determine risk level
             if score > self.threshold * 2:
                 risk_level = "CRITICAL"
             elif score > self.threshold * 1.5:
@@ -248,7 +229,6 @@ class ModelManager:
             self.model.save(f"{path}/autoencoder_{self.model_id}.h5")
             joblib.dump(self.scaler, f"{path}/scaler_{self.model_id}.pkl")
             
-            # Save metadata
             metadata = {
                 'model_id': self.model_id,
                 'threshold': float(self.threshold),
@@ -256,10 +236,8 @@ class ModelManager:
             }
             with open(f"{path}/metadata_{self.model_id}.json", 'w') as f:
                 json.dump(metadata, f)
-# Global model manager instance
 model_manager = ModelManager()
 
-# API Endpoints
 @app.get("/")
 async def root():
     return {
@@ -287,7 +265,6 @@ async def train_model(request: TrainingRequest):
         )
         
         if success:
-            # Save model
             model_manager.save_model()
             
             return TrainingResponse(
@@ -313,7 +290,6 @@ async def detect_anomalies(request: AnomalyDetectionRequest):
         
         results = model_manager.predict(request.usage_data)
         
-        # Determine overall risk level
         risk_levels = [r.risk_level for r in results]
         if "CRITICAL" in risk_levels:
             overall_risk = "CRITICAL"
@@ -354,36 +330,31 @@ async def generate_sample_data():
     apps = ['WhatsApp', 'Instagram', 'Chrome', 'Gmail', 'YouTube', 'Maps', 'Camera']
     sample_data = []
     
-    # Generate 2 weeks of normal usage patterns
     for day in range(1, 15):
         date = f"2024-01-{day:02d}"
         
         for app in apps:
-            # Define normal patterns for each app (including typical foreground time)
             patterns = {
-                'WhatsApp': {'first': 8, 'last': 22, 'count': 40, 'avg_foreground': 3600},  # 1 hour
-                'Instagram': {'first': 10, 'last': 23, 'count': 15, 'avg_foreground': 2400}, # 40 minutes
-                'Chrome': {'first': 9, 'last': 18, 'count': 25, 'avg_foreground': 1800},     # 30 minutes
-                'Gmail': {'first': 7, 'last': 17, 'count': 8,  'avg_foreground': 600},      # 10 minutes
-                'YouTube': {'first': 19, 'last': 23, 'count': 12, 'avg_foreground': 4800},  # 80 minutes
-                'Maps': {'first': 8, 'last': 20, 'count': 5,   'avg_foreground': 300},      # 5 minutes
-                'Camera': {'first': 12, 'last': 18, 'count': 3, 'avg_foreground': 180}      # 3 minutes
+                'WhatsApp': {'first': 8, 'last': 22, 'count': 40, 'avg_foreground': 3600},  
+                'Instagram': {'first': 10, 'last': 23, 'count': 15, 'avg_foreground': 2400}, 
+                'Chrome': {'first': 9, 'last': 18, 'count': 25, 'avg_foreground': 1800},     
+                'Gmail': {'first': 7, 'last': 17, 'count': 8,  'avg_foreground': 600},      
+                'YouTube': {'first': 19, 'last': 23, 'count': 12, 'avg_foreground': 4800},  
+                'Maps': {'first': 8, 'last': 20, 'count': 5,   'avg_foreground': 300},      
+                'Camera': {'first': 12, 'last': 18, 'count': 3, 'avg_foreground': 180}      
             }
             
             base = patterns[app]
             
-            # Add normal variation
             first_hour = max(0, base['first'] + np.random.randint(-2, 3))
             last_hour = min(23, base['last'] + np.random.randint(-2, 3))
             launch_count = max(1, base['count'] + np.random.randint(-5, 6))
             
-            # Generate realistic foreground time with variation
-            # Base time with ±30% variation
+
             variation_factor = np.random.uniform(0.7, 1.3)
             total_time_in_foreground = int(base['avg_foreground'] * variation_factor)
             
-            # Ensure it doesn't exceed reasonable limits
-            total_time_in_foreground = max(30, min(total_time_in_foreground, 14400))  # Between 30sec and 4 hours
+            total_time_in_foreground = max(30, min(total_time_in_foreground, 14400))  
             
             sample_data.append({
                 'app': app,
